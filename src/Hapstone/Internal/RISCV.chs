@@ -40,13 +40,33 @@ data RiscvOpMemStruct = RiscvOpMemStruct
 
 -- | Instruction operand
 data CsRiscvOpValue
-  = Reg Word32
-  | Imm Int64
-  | Mem RiscvOpMemStruct
+  = Reg Word32 -- register value for REG operand
+  | Imm Int64  -- immediate value for IMM operand
+  | Mem RiscvOpMemStruct -- base/disp value for MEM operand
   deriving (Show, Eq)
 
-data CsRiscvOp = CsRiscvOop
-  { type :: RiscvOpType
+data CsRiscvOpStruct = CsRiscvOpStruct
+  { type :: RiscvOpType -- operand type
   , value :: CsRiscvOpValue
   } deriving (Show_eq)
   
+-- | Instruction structure
+data CsRiscvStruct = CsRiscvStruct
+  { needEffectiveAddr :: Bool -- Does this instruction need effective address or not
+  , opCount ::  Word8 -- Number of operands of this instruction, or 0 when instruction has no operand.
+  , operands :: [CsRiscvOp] -- operands for this instruction
+  } deriving (Show_eq)
+
+-- | RISCV registers
+{#enum riscv_reg as RiscvReg {underscoreToCase}
+   deriving (Show, Eq, Bounded)#}
+
+-- | RISCV instruction
+{#enum riscv_insn as RiscvInsn {underscoreToCase}
+    deriving (Show, Eq, Bounded)#}
+
+
+-- | Group of RISCV instructions
+{#enum riscv_insn_group RiscvInsnGroup {underscoreToCase}
+    deriving (Show, Eq, Bounded)#}
+ 
