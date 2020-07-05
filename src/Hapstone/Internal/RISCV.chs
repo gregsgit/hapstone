@@ -28,34 +28,75 @@ import Foreign
 import Foreign.C.Types
 
 -- | RISC-V Operand type for instruction's operands
-{#enum riscv_op_type as RiscvOpType {underscoreToCase}
-   deriving (Show, Eq, Bounded)#}
+-- [ RiscvOpInvalid | RiscvOpReg | RiscvOpImm | RiscvOpMem ]
+{#enum riscv_op_type as RiscvOpType {underscoreToCase} deriving (Show, Eq, Bounded)#}
 
 -- | RISC-V Instruction's operand referring to memory
 --   This is associated with RISCV_OP_MEM operand type above
-data RiscvOpMemStruct = RiscvOpMemStruct
-  { base :: Word32 -- base register
-  , disp :: Int64  -- displacement/offset vaue
+data RiscvOpMemRef = RiscvOpMemRef -- struct riscv_op_mem
+  { base :: Word32                 -- base register
+  , disp :: Int64                  -- displacement/offset vaue
   } deriving (Show, Eq)
 
+instance Storable RiscvOpMemRef where
+  sizeOf _ = {#sizeof cs_riscv_op#}
+  alignment _ = {#alignof cs_riscv_op#}
+  peek p = RiscvOpMemRef
+    <$> (fromIntegral <$> {#get riscv_op_mem->base#} p) -- base
+    <*> (fromIntegral <$> {#get riscv_op_mem->disp#} p) -- disp
+  poke p (RiscvOpMemRef b d) = do
+     {#set riscv_op_mem->base#} p (fromIntegral b)
+     {#set riscv_op_mem->disp#} p (fromIntegral d)
+
 -- | Instruction operand
-data CsRiscvOpValue
+data CsRiscvOp -- cs_riscv_op
   = Reg Word32 -- register value for REG operand
   | Imm Int64  -- immediate value for IMM operand
-  | Mem RiscvOpMemStruct -- base/disp value for MEM operand
+  | Mem RiscvOpMemRef -- base/disp value for MEM operand
   deriving (Show, Eq)
-
-data CsRiscvOpStruct = CsRiscvOpStruct
-  { type :: RiscvOpType -- operand type
-  , value :: CsRiscvOpValue
-  } deriving (Show_eq)
   
+instance Storable CsRiscvOp where
+  sizeOf _ = {#sizeof cs_riscv_op#}
+  alignment _ = {#alignof cs_riscv_op#}
+  peek p = do
+    case (toEnum (fromIntegral <$> {#get cs_riscv_op->riscv_op_type#})) of
+      RiscvOpReg -> (Reg . fromIntegral) <$> {#get cs_riscv_op->reg#} p
+      RiscvOpImm -> (Imm . fromIntegral) <$> {#get cs_riscv_op->imm#} p
+      RiscvOpMem -> Mem <$> RiscvOpMemRef <$> (fromIntegral <$> {#get cs_riscv_op->mem.base#} p)
+                                          <$> (fromIntegral <$> {#get cs_riscv_op->mem.disp#} p)
+  poke p op = do
+    let setType = {#set cs_riscv_op->type#} p . fromIntegral . fromEnum
+    case op of
+      Reg w -> do
+          setType RiscvOpReg
+          {#set cs_riscv_op->reg#} p (fromIntegral w)
+      Imm i -> do
+          setType RiscvOpImm
+          {#set cs_riscv_op->reg#} p (fromIntegral i)
+      Mem ref -> do
+          setType RiscvOpMem
+          {#set cs_riscv_op->mem.base#} p (fromIntegral (base ref))
+          {#set cs_riscv_op->mem.disp#} p (fromIntegral (disp ref))
+
 -- | Instruction structure
-data CsRiscvStruct = CsRiscvStruct
+data CsRiscv = CsRiscv -- struct cs_riscv
   { needEffectiveAddr :: Bool -- Does this instruction need effective address or not
-  , opCount ::  Word8 -- Number of operands of this instruction, or 0 when instruction has no operand.
-  , operands :: [CsRiscvOp] -- operands for this instruction
+  , operands :: [CsRiscvOp]   -- operands for this instruction
   } deriving (Show_eq)
+
+instance Storable CsRiscv where
+  sizeOf _ = {#sizeof cs_riscv#}
+  alignment _ = {#alignof cs_riscv#}
+  peek p = CsRiscv
+    <$> (toBool . fromIntegral <$> {#get cs_riscv->need_effective_addr#} p)
+    <*> do num <- fromIntegral <$> {#get cs_riscv->op_count#} p
+           let ptr = plusPtr p {#offsetof cs_riscv->operands#}
+           peekArray num ptr -- operands
+  poke p (CsRiscv nEA ops) = do
+      {#set cs_riscv->need_effective_addr#} p (fromBool nEA)
+      {#set cs_riscv->op_count#} p (fromIntegral $ length ops)
+      let ptr = plusPtr p {#offsetof cs_riscv->operands#}
+      pokeArray ptr ops
 
 -- | RISCV registers
 {#enum riscv_reg as RiscvReg {underscoreToCase}
